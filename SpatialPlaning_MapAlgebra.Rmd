@@ -1,0 +1,470 @@
+---
+title: "Map Algebra for Site Selection in R "
+author: "Kwesie Benjamin"
+date: "5/12/2021"
+output:
+  rmdformats::readthedown:
+    gallery: yes
+    highlight: tango
+    lightbox: yes
+    self_contained: yes
+    thumbnails: yes
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,comment="",collapse = TRUE, message = FALSE,warning = FALSE)
+```
+
+
+## **Introduction**
+
+The Department of Planning of the (imaginary) oasis Aïn Kju Dzjis is planning to build the National
+Institute for Oasis Management (NIOM) in their village. They came up with the following conditions 
+for building the complex:
+
+1. No industry, mine or landfill within 300 meters of the new complex;
+2. Not on locations presently in use for buildings, water or roads;
+3. The slope should be less than or equal to 3%;
+4. The distance from an existing road should be less than 500 meters;
+5. The area should be contiguous;
+6. The area should be greater than, or equal to 2 hectares.
+
+They hired you as a GIS consultant to find the most appropriate locations. You will use map algebra 
+to perform the required multicriteria analysis.`(Van der Kwast, 2018)`.
+
+
+Install and load packages as listed below.
+```{r message=FALSE,warning=FALSE,eval=FALSE}
+install.packages("raster",dependencies = T)
+install.packages("tmap")
+install.packages("tidyverse")
+install.packages("sf")
+install.packages("units")
+```
+
+
+
+
+Now we load the libraries. For more information on packages use `help()`  (eg., `help("raster")`).
+```{r message=FALSE, warning=FALSE}
+#Do well to set the working directory
+setwd("C:/MapAlgebra")
+
+library(raster)
+library(tmap)
+library(tidyverse)
+library(sf)
+library(units)
+library(mapview)
+```
+
+
+
+
+Loading of Data  
+
+* Functions to be used in this section:
+    + **raster {raster}**
+    + **tmap {tmap}** 
+
+To begin, we laod in all tif files`(.tif)` using the function `raster()`.
+```{r message=FALSE, warning=FALSE}
+buildings <- raster("building.tif")
+isroad <- raster("isroad.tif")
+iswater <- raster("iswater.tif")
+roads <- raster("roads.tif")
+topo <- raster("topo.tif")
+```
+
+
+
+
+Lets check the properties of the RasterLayer Object using `print()`.
+```{r message=FALSE, warning=FALSE}
+cat("buildings\n"); print(buildings) ; cat("isroad\n"); print(isroad); cat("iswater\n"); print(iswater) ;
+cat("roads\n"); print(roads) ; cat("topo\n"); print(topo)
+```
+It is very clear all raster layer have the same spatial resolution and same UTM projection.
+
+
+
+
+
+However, to be sure we can check this in R using the function `CompareRaster()`.
+```{r message=FALSE, warning=FALSE}
+compareRaster(buildings,isroad,iswater,roads, topo,
+              crs = TRUE,# CRS of raster layers
+              res = TRUE #Resolution of raster layers
+              )
+```
+
+
+
+
+## **Condition 1**
+
+No industry, mine or Landfill within 300 metres of the complex.
+The raster layer building, is discreete with values;
+
+* 0 - None
+* 1 - House
+* 2 - Public building
+* 3 - landfill
+* 4 - Industry
+* 5 - Mine
+
+```{r message=FALSE, warning=FALSE}
+unique(buildings) # It indicates the unique discrete values in the raster layer.
+```
+
+
+
+We need to re-classify the raster layer with;
+
+* 0 - No industry
+* 1 - Industry
+In R we can do this using the functions `calc()` or `reclassify()`. However at this stage we would learn to use the `clac()` function.
+```{r message=FALSE,warning=FALSE}
+  IndustryClass<- calc(buildings,
+                       fun = function(x){
+                         ifelse(x>=3,1, 0) # We doing this in other to create a boolean(0,1).
+                       })
+
+summary(IndustryClass)
+```
+
+
+
+In R, the distance function `distance()` computes distance from NA cells to non-NA cells. Hence we need to assing NA to all  pixels with values of (0) in **industry_class**.
+```{r message=FALSE, warning=FALSE}
+IndustryClass[IndustryClass==0] = NA
+
+unique(values(IndustryClass))
+```
+
+
+
+The IndustryDist layer is UTM projected with (+units = m), hence calculated distance would be in metres.
+```{r message=FALSE, warning=FALSE}
+IndustryDist <- distance(IndustryClass) 
+
+summary(IndustryDist)
+```
+
+
+
+
+
+Now lets plot the **industry_dist** layer in `tmap()`.Areas close to the industry are shown in red.
+```{r message=FALSE, warning=FALSE}
+tm_shape(IndustryDist)+
+  tm_raster(style='cont', palette = "RdYlGn", title = 'Distances to Industry') +
+  tm_layout(legend.outside = TRUE)
+
+```
+
+
+
+
+Now we enforce the condition of **Industry,Mine or Landfill should be 300 metres** away from complex. 
+```{r message=FALSE,warning=FALSE}
+NoIndustry <- IndustryDist >= 300 # Output raster is now discrete and can be categorised.
+
+tm_shape(NoIndustry)+
+  tm_raster(style = 'cat', 
+            title = " 300 metres away from industry",
+            labels = c("No Industry", "Industry at 300m"),
+            palette = c("red", "green"))+ 
+  tm_layout(legend.outside = TRUE)
+```
+
+
+
+
+## **Condition 2** 
+
+Not on locations presently in use for buildings, water or roads. Note that layers are mapped to values of 0(indicating the absence of buildings,Water-way,Roads).
+```{r message=FALSE, warning=FALSE}
+NoBuilding <- buildings == 0
+NoWater <- iswater== 0
+NoRoad <- isroad == 0
+```
+
+
+
+
+Lets style and Map the layers fufilling condition 2 above.
+```{r message=FALSE, warning=FALSE}
+NoBuilding_map <- tm_shape(NoBuilding)+
+  tm_raster(style = 'cat',title= "", labels = c("Is Building", "No Building"),
+            palette = c("red", "green"))+ tm_layout(main.title = "Building Map" )
+
+NoWater_map <- tm_shape(NoWater)+
+  tm_raster(style = 'cat',title="", labels = c("Is Water", "No Water"),
+            palette = c("red", "green"))+ tm_layout(main.title = "Water Map")
+
+NoRoad_map <- tm_shape(NoRoad)+
+  tm_raster(style = 'cat',title="", labels = c("Is Road", "No Road"),
+            palette = c("red", "green"))+ tm_layout(main.title = "Road Map")
+
+tmap_arrange(NoBuilding_map,NoWater_map,NoRoad_map,ncol = 3, nrow = 1)
+```
+
+
+
+
+## **Condition 3** 
+
+The slope should be less than or equal to 3 %.
+In R we can compute the Slope using the `terrain()` function however this would be done in degrees.
+```{r message=FALSE, warning=FALSE}
+SlopeTopo <- terrain(topo, opt="slope",unit ="degrees")
+
+#Now lets plot the slope of 3 degress.
+tm_shape(SlopeTopo)+
+  tm_raster(style = 'cont',
+            title = "Slope in degrees",
+            palette = "-RdYlGn")+
+  tm_layout(legend.outside= TRUE ,legend.outside.position = "right")
+```
+
+
+
+
+Now lets enforce the criteria of 3(%) percent slope. Note, slope was calculated in degrees.
+
+Percent of slope is determined by dividing the amount of elevation change by the amount of horizontal distance covered,
+and then multiplied by **(100)**.
+Knowing the percent slope we can find the slope in degrees using inverse tangent. 
+$tan^{-1}$ of 3% slope would be approximately **1.72** degrees.
+```{r message=FALSE,warning=FALSE}
+SlopeNotSteep <- SlopeTopo<= 1.72
+
+#Now lets plot discrete map of slope ( <= 1.72 dgreees, equivalent of 3% )
+
+tm_shape(SlopeNotSteep)+
+  tm_raster(style = 'cat', 
+            labels = c("Steep", "Not Steep"),
+                       title = "Slope less than or equals 300 m",
+                       palette = c("red","green"))+
+  tm_layout(legend.outside= TRUE ,legend.outside.position = "right")
+```
+
+
+
+
+## **Condition 4** 
+
+The distance from an existing road should be less than 500 metres.
+The road raster layer is discrete and has 3 classes with values;
+
+* 0 - No road
+* 1 - Dirt road
+* 2 - Tarmac road
+
+The `reclassify()` function would be use to reclassify values into **0(No roads)** 
+and **1(Dirt and Tarmac roads)**.
+```{r message=FALSE, warning=FALSE}
+RclRoads <- reclassify(roads,
+                       rcl = matrix(c(0,0,0, # from 0 to 0 ->0
+                                      1,2,1),# from 1 to 2 ->1
+                                    ncol = 3,byrow = TRUE))
+
+# Lets now map the 0 values of rclRoads layer to NA to allow for distance computation.
+RclRoads[RclRoads==0]<- NA #We could have equally set 0 values to NA within the reclassify matrix.
+
+unique(values(RclRoads))
+```
+
+
+
+Lets now compute the distances for the reclassified road Map using the `distance()` function.
+```{r message=FALSE, warning=FALSE}
+RoadDist<- distance(RclRoads)  
+
+tm_shape(RoadDist)+
+  tm_raster(style = 'cont', 
+            title ="Computed distances from road" ,
+            palette = "-RdYlGn")+
+  tm_layout(legend.outside= TRUE ,
+            legend.outside.position = "right")
+```
+
+
+
+
+
+Lets enforce condition **4.The distance from an existing road should be less than 500 metres**
+```{r message=FALSE, warning=FALSE}
+LessThan500m <- RoadDist <= 500
+
+#lets style the layer
+tm_shape(LessThan500m)+
+  tm_raster(style = "cat",
+            title = "Distance less than or equals 500 m",
+            labels = c("Greater than 500m","Less than 500m"),
+            palette = c("red","green"))+
+  tm_layout(legend.outside= TRUE ,
+            legend.outside.position = "right")
+```
+
+
+
+
+
+Lets combine all the criteria. In R we would multiply all the boolean condition.
+```{r message=FALSE, warning=FALSE}
+Niomgo <- NoIndustry*NoBuilding*NoWater*NoRoad*SlopeNotSteep*LessThan500m
+
+#Lets set all zero pxels to NA. Weare aonly interested in pixels with value =1(Boolen True).
+Niomgo[Niomgo==0]<- NA
+
+#Lets chechk to be sure all zero's are now NA leaving values of 1 only.
+summary(Niomgo)
+
+
+tm_shape(Niomgo)+
+  tm_raster(style = "cat",
+            title = "",
+            labels = "True for all Conditions",
+            palette = "green")+
+  tm_layout(legend.outside= TRUE ,legend.outside.position = "right")
+            
+```
+
+ 
+
+
+## **Condition 5**
+
+The area should be contiguous(share common border).
+Contiguity forms the concepts of neighbors and  how the pixels relate(interact) with other pixels.
+
+At this point, we would recategorize the rasta values base on contiguity.We would only consider Vertical and Horizontal contiguity(Rook case).After clumping using `clump()` we then convert the raster cells to polygons using the `rasterToPolygons()` function.
+
+At this stage we would be using the dplyr pipe ` %>% ` quite alot.
+```{r message=FALSE, warning=FALSE}
+NiomgoClump <- Niomgo %>%
+  clump(directions= 4) %>% #dirction = 4(rook case)
+  rasterToPolygons() %>% 
+  st_as_sf() %>% 
+  group_by(clumps) %>% 
+  summarize() #This dissolves polygons with same clump value(clumps) into one region.
+  
+  
+
+NiomgoArea <- NiomgoClump %>% 
+  group_by(clumps) %>% 
+  summarise(
+    Area_poly = geometry %>% #We calculate Area from geometry  
+      sf::st_zm() %>% #Drops  Z or M dimension from geometry
+      sf::st_area() %>% round(2))
+
+
+NiomgoSelected <- NiomgoArea %>% 
+  filter(Area_poly >= units::set_units(20000, m^2) )# Since Area_poly has a unit of meter square(m^2)
+                                             # we need to also set unit of 200000 to meters(m^2)
+
+```
+
+
+
+
+## **Selected Locations**
+
+
+Lets now plot a map of final selected areas.
+```{r message=FALSE, warning=FALSE}
+#In order to plot NiomgoSelected as categorical in tmap, we need to convert the 'clumps(feature)'
+#from double to character.
+
+NiomgoSelected["clumps"]<- as.character(NiomgoSelected$clumps)
+
+tm_shape(NiomgoSelected)+
+  tm_polygons(style = "cat", col= "clumps", title= "Selected Sites")+
+  tm_layout( legend.outside = TRUE)
+```
+
+
+
+
+Lets also plot the selected site in `mapView()` to have a visual statisfaction of real-time location.
+```{r}
+mapView(NiomgoSelected,
+        map.types="Esri.WorldImagery")
+```
+
+
+
+<!--html_preserve-->
+<br>
+<body>
+  <style type="text/css">
+	      a:hover{
+	          color: red;
+	      }
+	      .tab{
+	        margin-left: 40px;
+	        padding-top:0;
+	      }
+	        
+	      p{
+	        	color: #555555;
+	        	font-family: Arial,sans-serif;
+	        	font-size: 16px;
+	        	font-weight: normal;
+	      }
+	 </style>
+	<div>
+	  <h2><center> Acknowledgement</center></h2>
+		<p style="text-alignment: justify">
+		    Sincere gratitude to Dr.Hans van der Kwast the author of the book Qgis and Open Data for Hydrological Applications 
+		    and His in-depth tutorial on Qgis on his  
+		    youtube page <a href="http://www.youtube.com/c/HansvanderKwast"  target="_blanck">HansvanderKwast</a>.
+		    This resource seeks to simulate what was done in the eBook QGIS and Open Data for Hydrological 
+		    Applications-Exercise Manual.(Exercise 4: Map Algebra), however using the R programming language. As a student 
+		    myself, I believe this workflow would endow students with some requisite raster data analysis skills using the R
+		    programing language.
+		 </p>
+	</div>
+
+	  <br>
+	  <br>
+  
+	<div>
+	    
+		 <h2>
+		    <center><b>References</b></centre>
+		 </h2>
+		 <br>
+		 <p>
+		    Lovelace,R.,Nowosad,J.,and Muenchow,J.(2019) <em>GeoComputation</em> with R*.1st edn.
+		 </P>
+		 <p class="tab">
+		    Bocca Raton:Chapman and Hall/CRC.
+		 </p>
+		 <br>
+		 <p>
+		    Van der Kwast, J. (2018) <em>Qgis and Open Data for Hydrlogical Applications-ExerciseManual</em>.
+		 </P>
+		 <p class="tab" >
+		    version3.4.1b.ocw.un-ihe.org.
+		 </p>
+		 <br>
+		 <p>
+		    Van der Kwast,J.(2018) 'Data Exercise 4:Spatial planning Using map algebra'.
+		 </p>
+		 <p class="tab" >
+		    Available at:<a href= "https://ocw.un-ihe.org/course/view.php?id=11&section=2" target="_blank" > 
+		    https://ocw.un-ihe.org/course/view.php?id=11&section=2 </a> (Accessed April 2021). 
+		 </p>
+	  
+	</div>
+</body>
+
+<!--/html_preserve-->
+
